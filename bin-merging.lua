@@ -33,25 +33,39 @@ local stream_out = io.open(out_file, "wb")
 local bytes = 0
 local buffer_length = 500000
 while true do
-	local out_bytes = {}
+	local out_bytes
 	for _, stream in ipairs(streams_in) do
 		local readen_bytes = stream:read(buffer_length)
-		
-		if readen_bytes and #readen_bytes > 0 then
-			for i = 1, #readen_bytes do
-				if (not out_bytes[i]) 
-					or ( out_bytes[i] == 0 and readen_bytes:byte(i) ~= 0 ) 
-				then
-					out_bytes[i] = readen_bytes:byte(i)
-				end
+		if not out_bytes then
+			out_bytes = readen_bytes
+		elseif readen_bytes then
+ 			if #out_bytes < #readen_bytes then
+				out_bytes, readen_bytes = readen_bytes, out_bytes
+			end
+			
+			if out_bytes ~= readen_bytes and readen_bytes:find("[^\0]") and out_bytes:find("\0", 1, true) then 
+				local index = 1
+				out_bytes = out_bytes:gsub("\0+", function(str)
+					if not index then return end
+					index = out_bytes:find("\0", index, true)
+					index = index + #str
+					if #readen_bytes >= index - 1 then
+						local part = readen_bytes:sub(index - #str, index - 1)
+						if part ~= str then
+							return part
+						end
+					elseif #readen_bytes >= index - #str then
+						return readen_bytes:sub(index - #str, #readen_bytes)..str:sub(1, index - 1 - #readen_bytes)
+					end
+				end)
 			end
 		end
 	end
-	if #out_bytes == 0 then
+	if (not out_bytes) or #out_bytes == 0 then
 		stream_out:close()
 		break
 	end
-	stream_out:write(string.char(table.unpack(out_bytes)))
+	stream_out:write(out_bytes)
 	bytes = bytes + #out_bytes
 	io.stderr:write(bytes.."\r")
 end
